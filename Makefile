@@ -4,12 +4,19 @@
 #   make app       build build.noindex/DarkCharge.app
 #   make test      run the tests
 #   make install   copy the app into /Applications and start it
+#   make release   Developer ID sign, notarize and zip build.noindex/DarkCharge.zip
 #
-# Signing is ad hoc by default. For a release, pass a Developer ID identity:
-#   make app SIGN="Developer ID Application: …"
+# `make app` signs ad hoc, which is enough on this Mac. `make release` needs the Developer
+# ID certificate in the keychain and notarytool credentials stored once with:
+#   xcrun notarytool store-credentials darkcharge --apple-id <apple id> --team-id <team id>
 
 APP      = build.noindex/DarkCharge.app
+ZIP      = build.noindex/DarkCharge.zip
 SIGN    ?= -
+RELEASE_IDENTITY ?= Developer ID Application: Simon Bross (3FH4ZHNZV2)
+NOTARY_PROFILE   ?= darkcharge
+# Notarization needs a secure timestamp; ad hoc signing can't have one.
+TIMESTAMP = $(if $(filter -,$(SIGN)),--timestamp=none,--timestamp)
 BIN_DIR  = $(shell swift build -c release --show-bin-path)
 SOURCES  = Package.swift $(shell find Sources -name '*.swift')
 
@@ -30,8 +37,8 @@ $(APP): $(SOURCES) Bundle/Info.plist Bundle/com.darkcharge.daemon.plist icon/Dar
 	cp Bundle/com.darkcharge.daemon.plist $@/Contents/Library/LaunchDaemons/
 	cp icon/DarkCharge.icns $@/Contents/Resources/
 	# Inside out: the helper first, then the app that contains it.
-	codesign --force --options runtime --timestamp=none -s "$(SIGN)" $@/Contents/MacOS/DarkChargeHelper
-	codesign --force --options runtime --timestamp=none -s "$(SIGN)" $@
+	codesign --force --options runtime $(TIMESTAMP) -s "$(SIGN)" $@/Contents/MacOS/DarkChargeHelper
+	codesign --force --options runtime $(TIMESTAMP) -s "$(SIGN)" $@
 
 # App icon: rendered from icon/make_icon.swift, then scaled to every size macOS wants.
 icon/DarkCharge.icns: icon/make_icon.swift
@@ -54,7 +61,20 @@ install: $(APP)
 	rm -rf $(APP)
 	open /Applications/DarkCharge.app
 
+# A clean build, signed with the Developer ID, notarized by Apple, with the ticket stapled
+# so it opens without a network check. The result is the zip to attach to a GitHub release.
+release:
+	rm -rf build.noindex
+	$(MAKE) app SIGN="$(RELEASE_IDENTITY)"
+	ditto -c -k --keepParent $(APP) $(ZIP)
+	xcrun notarytool submit $(ZIP) --keychain-profile $(NOTARY_PROFILE) --wait
+	xcrun stapler staple $(APP)
+	rm $(ZIP)
+	ditto -c -k --keepParent $(APP) $(ZIP)
+	spctl --assess --type execute --verbose $(APP)
+	@echo "Release ready: $(ZIP)"
+
 clean:
 	rm -rf .build build.noindex icon/DarkCharge.icns
 
-.PHONY: all app test install clean
+.PHONY: all app test install release clean
