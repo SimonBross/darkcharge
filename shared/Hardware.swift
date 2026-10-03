@@ -1,4 +1,4 @@
-// Shared by the darkcharge helper and the DarkCharge app: SMC access, the light sensor,
+// Shared by the darkcharge helper and the DarkCharge app: SMC access, the lid state,
 // and the paths and notification names the two use to talk to each other.
 // The LED is controlled by SMC key ACLC: 0 = macOS controls it, 1 = off, 3 = green, 4 = amber.
 
@@ -6,29 +6,25 @@ import Foundation
 import IOKit
 
 // Bumped whenever the helper changes; the app reinstalls the helper when it differs.
-let helperVersion = "11"
+let helperVersion = "13"
 
 let supportDir = "/Library/Application Support/DarkCharge"
-// When this file exists the user has turned the LED back on; the daemon leaves it alone.
+// When this file exists the user has turned the feature off; the daemon leaves the LED alone.
 let pausedFile = supportDir + "/paused"
-// Lux at or below which the room counts as dark. No file means defaultThreshold.
-let thresholdFile = supportDir + "/threshold"
-// "dark" to hide the LED only when the room is dark; no file means always.
-let modeFile = supportDir + "/mode"
+// When this file exists the LED is kept off all the time, not just while the screen is dark.
+let alwaysFile = supportDir + "/always"
 // Written by the running daemon, so the app can tell which version is installed.
 let versionFile = supportDir + "/version"
-let defaultThreshold = 10.0
 
 let notifyOff = "com.darkcharge.off"
 let notifyOn = "com.darkcharge.on"
-// Carries the threshold in its notify state, in tenths of a lux.
-let notifyThreshold = "com.darkcharge.threshold"
-// Carries the mode in its notify state: 1 for when dark, 0 for always.
+// Sent by the app, which can see the screen: notify state 1 when the built-in screen
+// is dark (asleep or brightness at zero), 0 when it's lit.
+let notifyScreen = "com.darkcharge.screen"
+// Carries the mode in its notify state: 1 for always off, 0 for whenever the screen is dark.
 let notifyMode = "com.darkcharge.mode"
 
-func readOnlyWhenDark() -> Bool {
-    (try? String(contentsOfFile: modeFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) == "dark"
-}
+var alwaysOff: Bool { FileManager.default.fileExists(atPath: alwaysFile) }
 
 // MARK: - SMC
 
@@ -127,44 +123,13 @@ func describe(_ value: UInt8) -> String {
     }
 }
 
-// MARK: - Light sensor
+// MARK: - Lid
 
-// Reads the ambient light sensor through the private IOHIDEventSystemClient API,
-// the only way to reach it on Apple Silicon. Loaded at runtime so a missing symbol
-// just means "no sensor" rather than a crash.
-final class LightSensor {
-    private typealias CreateFn = @convention(c) (CFAllocator?) -> Unmanaged<AnyObject>?
-    private typealias CopyServicesFn = @convention(c) (AnyObject) -> Unmanaged<CFArray>?
-    private typealias ConformsFn = @convention(c) (AnyObject, UInt32, UInt32) -> Bool
-    private typealias CopyEventFn = @convention(c) (AnyObject, Int64, Int32, Int64) -> Unmanaged<AnyObject>?
-    private typealias GetFloatFn = @convention(c) (AnyObject, Int32) -> Double
-
-    private static let eventTypeAmbientLight: Int64 = 12
-    private let copyEvent: CopyEventFn
-    private let getFloat: GetFloatFn
-    private let client: AnyObject
-    private let service: AnyObject
-
-    init?() {
-        guard let lib = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW),
-              let create = dlsym(lib, "IOHIDEventSystemClientCreate"),
-              let copyServices = dlsym(lib, "IOHIDEventSystemClientCopyServices"),
-              let conforms = dlsym(lib, "IOHIDServiceClientConformsTo"),
-              let copyEvent = dlsym(lib, "IOHIDServiceClientCopyEvent"),
-              let getFloat = dlsym(lib, "IOHIDEventGetFloatValue"),
-              let client = unsafeBitCast(create, to: CreateFn.self)(kCFAllocatorDefault)?.takeRetainedValue(),
-              let services = unsafeBitCast(copyServices, to: CopyServicesFn.self)(client)?.takeRetainedValue() as? [AnyObject],
-              // Apple vendor usage page 0xFF00, usage 4: ambient light sensor.
-              let service = services.first(where: { unsafeBitCast(conforms, to: ConformsFn.self)($0, 0xFF00, 4) })
-        else { return nil }
-        self.copyEvent = unsafeBitCast(copyEvent, to: CopyEventFn.self)
-        self.getFloat = unsafeBitCast(getFloat, to: GetFloatFn.self)
-        self.client = client
-        self.service = service
-    }
-
-    var lux: Double? {
-        guard let event = copyEvent(service, Self.eventTypeAmbientLight, 0, 0)?.takeRetainedValue() else { return nil }
-        return getFloat(event, Int32(Self.eventTypeAmbientLight << 16))
-    }
+// True while the lid is closed (also while the Mac runs closed with an external display).
+func lidIsClosed() -> Bool {
+    let rootDomain = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+    guard rootDomain != 0 else { return false }
+    defer { IOObjectRelease(rootDomain) }
+    let state = IORegistryEntryCreateCFProperty(rootDomain, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)
+    return (state?.takeRetainedValue() as? Bool) ?? false
 }

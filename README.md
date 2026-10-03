@@ -7,12 +7,12 @@
 <p align="center"><b>Turn off the MagSafe charging light on your Mac.</b></p>
 
 That little green or amber light on the MagSafe plug is bright enough to light up a
-dark bedroom. DarkCharge is a tiny menu bar app that switches it off, either all the
-time or only when the room is dark, using your Mac's ambient light sensor.
+dark bedroom. DarkCharge is a tiny menu bar app that switches it off whenever your
+MacBook's screen is dark, and lets it shine normally while you're using the Mac.
 
-- **One click** to turn the charging LED off
-- **Light-aware:** a slider sets how dark the room must be (or "Always off")
-- **Stays off** after plugging in, unplugging, sleep and restarts
+- **Automatic:** the LED goes dark when the lid is closed, the Mac is asleep, or the
+  screen is off or dimmed all the way down. Or keep it off all the time.
+- **Stays put** after plugging in, unplugging, sleep and restarts
 - **Tiny and private:** no network access, no tracking, almost no CPU
 
 ## Requirements
@@ -32,36 +32,32 @@ Tested on a 16" MacBook Pro (M4 Pro). Reports from other models are welcome.
 ### Using it
 
 - **Turn Off Charging LED:** the main switch.
-- **Slider:** `Always off` at 0, or `Turn off at ≤ N lux` to hide the LED only when the
-  room is that dark or darker. The current light level is shown next to it.
-- **Launch at Login**, **Hide Menu Bar Icon** (open the app again to bring it back).
+- **Whenever the screen is dark** (default): the LED is dark while
+  - the lid is closed (also when you use the Mac closed with an external display),
+  - the Mac is asleep,
+  - the screen has gone to sleep, or
+  - the brightness is turned all the way down,
 
-### Lid closed, lid open, and sleep
+  and shines normally while you're using the Mac.
+- **Always:** the LED stays off all the time.
+- **Launch at Login** (recommended), **Hide Menu Bar Icon** (open the app again to bring
+  it back).
 
-The light sensor sits next to the camera, so the lid matters:
-
-- **Lid closed:** the sensor is covered and reads as dark, so the LED turns off.
-  Charging overnight with the lid shut keeps the LED dark.
-- **Mac asleep with the lid open:** DarkCharge can't watch the room while the Mac
-  sleeps. It checks the light just before sleep and keeps that decision until the Mac
-  wakes. If the room was still lit when the Mac went to sleep and you turn the lights
-  off afterwards, the LED stays on until the next wake.
-- **On wake** (opening the lid, pressing a key), it checks the room again right away.
-
-If you want the LED off at night no matter what, set the slider to **Always off**.
+The app has to be running to notice the screen sleeping or being dimmed. Lid closed and
+Mac asleep work even when it isn't.
 
 ## How it works
 
 The LED is controlled by the Mac's System Management Controller (SMC), key `ACLC`.
 Writing to it needs root, so the app installs a small helper as a LaunchDaemon. The
-helper sets the LED, and puts it back whenever macOS resets it: on every power change,
-after wake, and every 30 seconds as a fallback. It reads the light sensor once a second.
+helper turns the LED off just before the Mac sleeps and whenever the lid is closed, and
+gives it back to macOS when the screen is in use. It also puts it back whenever macOS
+resets it, for example on plugging in.
 
-While the Mac is asleep the helper can't watch the room; see
-[Lid closed, lid open, and sleep](#lid-closed-lid-open-and-sleep).
-
-The light sensor is read through a private macOS API (there's no public one on Apple
-Silicon). If a future macOS update breaks that, the LED simply stays on.
+Whether the screen is asleep or fully dimmed can only be seen from your login session,
+so the menu bar app watches that and tells the helper. Reading the brightness uses a
+private macOS API (there's no public one on Apple Silicon); if a future macOS update
+breaks it, "dimmed all the way down" simply stops counting as dark.
 
 ## Uninstall
 
@@ -85,13 +81,11 @@ sudo make uninstall # remove the helper and give the LED back to macOS
 Command-line control (once the helper is installed):
 
 ```sh
-sudo darkcharge off            # turn the LED off
-sudo darkcharge on             # give the LED back to macOS
-sudo darkcharge mode always    # off all the time
-sudo darkcharge mode dark      # off only while the room is dark
-sudo darkcharge threshold 5    # room counts as dark at 5 lux or less
-darkcharge light               # current light level
-darkcharge status              # current LED state
+sudo darkcharge off           # turn the LED off
+sudo darkcharge on            # give the LED back to macOS
+sudo darkcharge mode screen   # off whenever the screen is dark (default)
+sudo darkcharge mode always   # off all the time
+darkcharge status             # current LED state
 ```
 
 ## Support
