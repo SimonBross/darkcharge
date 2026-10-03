@@ -6,7 +6,7 @@ import Foundation
 import IOKit
 
 // Bumped whenever the helper changes; the app reinstalls the helper when it differs.
-let helperVersion = "13"
+let helperVersion = "15"
 
 let supportDir = "/Library/Application Support/DarkCharge"
 // When this file exists the user has turned the feature off; the daemon leaves the LED alone.
