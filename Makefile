@@ -30,13 +30,7 @@ $(APP): darkcharge app/main.swift shared/Hardware.swift app/Info.plist com.darkc
 
 app: $(APP)
 
-install: darkcharge
-	-launchctl bootout $(LABEL) 2>/dev/null
-	install -d /usr/local/bin
-	install -m 755 darkcharge $(BIN)
-	install -m 644 com.darkcharge.daemon.plist $(PLIST)
-	launchctl bootstrap system $(PLIST)
-
+# The app installs the helper itself; this removes it again.
 uninstall:
 	-launchctl bootout $(LABEL) 2>/dev/null
 	-$(BIN) on
@@ -46,4 +40,4 @@ uninstall:
 clean:
 	rm -rf darkcharge build icon/DarkCharge.icns
 
-.PHONY: all app install uninstall clean
+.PHONY: all app uninstall clean

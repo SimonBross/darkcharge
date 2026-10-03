@@ -6,7 +6,7 @@ import Foundation
 import IOKit
 
 // Bumped whenever the helper changes; the app reinstalls the helper when it differs.
-let helperVersion = "15"
+let helperVersion = "16"
 
 let supportDir = "/Library/Application Support/DarkCharge"
 // When this file exists the user has turned the feature off; the daemon leaves the LED alone.
@@ -18,9 +18,14 @@ let versionFile = supportDir + "/version"
 
 let notifyOff = "com.darkcharge.off"
 let notifyOn = "com.darkcharge.on"
-// Sent by the app, which can see the screen: notify state 1 when the built-in screen
-// is dark (asleep or brightness at zero), 0 when it's lit.
+// The app's heartbeat, sent every few seconds and whenever the screen changes. Its notify
+// state says whether the built-in screen is dark (asleep or brightness at zero). The
+// daemon only acts while these keep coming, so quitting the app (or it crashing, or
+// being deleted) hands the LED back to macOS.
 let notifyScreen = "com.darkcharge.screen"
+let screenLit: UInt64 = 0
+let screenDark: UInt64 = 1
+let appQuitting: UInt64 = 2
 // Carries the mode in its notify state: 1 for always off, 0 for whenever the screen is dark.
 let notifyMode = "com.darkcharge.mode"
 

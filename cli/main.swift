@@ -1,6 +1,7 @@
 // darkcharge: turns the MagSafe charging LED off, either always or whenever the built-in
 // screen is dark: lid closed, Mac asleep, or (as reported by the app) screen asleep or
-// fully dimmed.
+// fully dimmed. Only acts while the DarkCharge app is running; otherwise the LED is
+// left to macOS.
 // Runs as a root LaunchDaemon (`darkcharge daemon`) and as a command-line tool.
 
 import Foundation
@@ -14,6 +15,16 @@ import notify
 // Reported by the app; the daemon can't see the screen itself. Reset on wake, when the
 // screen comes back on, and the app reports again within a second anyway.
 var screenIsDark = false
+
+// When the app's last heartbeat arrived, in seconds of awake time (systemUptime stops
+// while the Mac sleeps, so a long night doesn't count as the app having gone away).
+var appLastSeen: TimeInterval?
+let appTimeout: TimeInterval = 30
+
+var appIsRunning: Bool {
+    guard let appLastSeen else { return false }
+    return ProcessInfo.processInfo.systemUptime - appLastSeen < appTimeout
+}
 
 func setPaused(_ paused: Bool) throws {
     let fm = FileManager.default
@@ -37,9 +48,14 @@ func setAlwaysOff(_ always: Bool) throws {
     }
 }
 
+// Whether DarkCharge should be holding the LED off right now.
+var shouldBeOff: Bool {
+    appIsRunning && !isPaused && (alwaysOff || screenIsDark || lidIsClosed())
+}
+
 // Darkens the LED when it should be off; otherwise hands it back to macOS if we had darkened it.
 func enforce() throws {
-    if !isPaused && (alwaysOff || screenIsDark || lidIsClosed()) {
+    if shouldBeOff {
         try setLED(ledOff)
     } else if try SMC().read(ledKey) == [ledOff] {
         try setLED(ledSystem)
@@ -89,7 +105,7 @@ func runDaemon() -> Never {
         case msgCanSystemSleep:
             IOAllowPowerChange(rootPort, Int(bitPattern: arg))
         case msgSystemWillSleep:
-            if !isPaused { logErrors { try setLED(ledOff) } }
+            if appIsRunning && !isPaused { logErrors { try setLED(ledOff) } }
             IOAllowPowerChange(rootPort, Int(bitPattern: arg))
         case msgSystemHasPoweredOn:
             screenIsDark = false
@@ -117,11 +133,13 @@ func runDaemon() -> Never {
     notify_register_dispatch(notifyScreen, &token, .main) { t in
         var state: UInt64 = 0
         notify_get_state(t, &state)
-        screenIsDark = state == 1
+        screenIsDark = state == screenDark
+        appLastSeen = state == appQuitting ? nil : ProcessInfo.processInfo.systemUptime
         logErrors(enforce)
     }
 
-    // Watches the lid, and puts the LED back if macOS resets it without a notification.
+    // Watches the lid, notices the app going away, and puts the LED back if macOS resets
+    // it without a notification.
     Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in logErrors(enforce) }
 
     CFRunLoopRun()
@@ -132,7 +150,7 @@ func runDaemon() -> Never {
 
 let usage = """
 usage: darkcharge <command>
-  off            turn the charging LED off
+  off            turn the charging LED off (while the DarkCharge app runs)
   on             give LED control back to macOS
   mode always    keep it off all the time
   mode screen    keep it off whenever the screen is dark

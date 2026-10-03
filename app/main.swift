@@ -99,6 +99,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         FileManager.default.fileExists(atPath: daemonPlist) && !FileManager.default.fileExists(atPath: pausedFile)
     }
 
+    private var iconHidden: Bool {
+        get { UserDefaults.standard.bool(forKey: "iconHidden") }
+        set { UserDefaults.standard.set(newValue, forKey: "iconHidden") }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let menu = NSMenu()
         menu.delegate = self
@@ -122,10 +127,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         loginItem.target = self
         menu.addItem(loginItem)
         menu.addItem(withTitle: "Hide Menu Bar Icon", action: #selector(hideIcon), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Uninstall DarkCharge…", action: #selector(uninstall), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         statusItem.menu = menu
-        statusItem.isVisible = true  // macOS remembers a hidden status item; opening the app always shows it
+        // A hidden icon stays hidden across restarts while the app launches at login (macOS
+        // gives no reliable sign of a login launch). Opening the app again while it runs
+        // shows the icon; without Launch at Login, any launch was by hand, so show it.
+        statusItem.isVisible = !(iconHidden && SMAppService.mainApp.status == .enabled)
+        if statusItem.isVisible { iconHidden = false }
         refresh()
         // After an app update the installed helper may be older and ignore new settings,
         // so bring it up to date straight away, keeping the user's settings.
@@ -140,18 +150,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.refreshSoon()
         }
         reportScreen()
-        // Repeat the report now and then, in case the daemon restarted and lost it.
-        Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.reportScreen() }
+        // Heartbeat; also covers a daemon that restarted and lost the last report.
+        Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.reportScreen() }
         // Keep the icon in step while the menu is closed.
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
-    // Leave the daemon believing the screen is lit, or it would keep the LED dark forever.
+    // Quitting hands the LED back to macOS right away. If the app dies without getting
+    // here, the daemon notices the missing heartbeat within half a minute.
     func applicationWillTerminate(_ notification: Notification) {
-        send(notifyScreen, state: 0)
+        send(notifyScreen, state: appQuitting)
     }
 
-    private func reportScreen() { send(notifyScreen, state: screen.isDark ? 1 : 0) }
+    // Also the heartbeat that keeps the daemon active.
+    private func reportScreen() { send(notifyScreen, state: screen.isDark ? screenDark : screenLit) }
 
     // A freshly started daemon doesn't know about the screen yet.
     private func helperStarted() {
@@ -224,13 +236,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // The LED keeps its setting while hidden; the daemon does the work, not this app.
     // Opening the app again brings the icon back.
-    @objc private func hideIcon() { statusItem.isVisible = false }
+    @objc private func hideIcon() {
+        statusItem.isVisible = false
+        iconHidden = true
+    }
 
     @objc private func donate() { NSWorkspace.shared.open(donateURL) }
 
     // Opening the app again while it's running brings the icon back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         statusItem.isVisible = true
+        iconHidden = false
         return false
     }
 
@@ -239,11 +255,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             && (try? String(contentsOfFile: versionFile, encoding: .utf8)) == helperVersion
     }
 
+    // Removes everything DarkCharge put on the Mac and gives the LED back to macOS, then
+    // moves the app to the Trash (recoverable) and quits. Cancelling the password prompt
+    // leaves everything as it was.
+    @objc private func uninstall() {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Uninstall DarkCharge?"
+        alert.informativeText = "The charging LED goes back to normal, the background helper is removed, "
+            + "and DarkCharge moves to the Trash. macOS will ask for your password."
+        alert.addButton(withTitle: "Uninstall")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        if FileManager.default.fileExists(atPath: daemonPlist) || FileManager.default.fileExists(atPath: installedBinary) {
+            // `darkcharge on` after stopping the daemon hands the LED back if it was off.
+            let removed = runAsAdmin([
+                "launchctl bootout system/com.darkcharge.daemon 2>/dev/null",
+                "[ -x \(installedBinary) ] && \(installedBinary) on",
+                "rm -f \(installedBinary) \(daemonPlist)",
+                "rm -rf '\(supportDir)'",
+            ], prompt: "DarkCharge needs to remove its helper.")
+            guard removed else { return }
+        }
+        try? SMAppService.mainApp.unregister()
+        UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
+        NSWorkspace.shared.recycle([Bundle.main.bundleURL]) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    }
+
     // Copies the daemon out of the app bundle and starts it with the requested settings.
     // Asks for an admin password; only needed on first use or after an update.
     private func installHelper(hidingEnabled: Bool, always: Bool) -> Bool {
         func q(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        let shell = [
+        return runAsAdmin([
             "launchctl bootout system/com.darkcharge.daemon 2>/dev/null",
             "mkdir -p /usr/local/bin",
             "install -m 755 \(q(bundledBinary)) \(installedBinary)",
@@ -251,10 +297,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "\(installedBinary) mode \(always ? "always" : "screen")",
             "\(installedBinary) \(hidingEnabled ? "off" : "on")",
             "launchctl bootstrap system \(daemonPlist)",
-        ].joined(separator: "; ")
+        ], prompt: "DarkCharge needs to install or update its helper to control the charging LED.")
+    }
+
+    // Runs shell commands as root behind the standard macOS password prompt. Returns false
+    // if the user cancels.
+    private func runAsAdmin(_ commands: [String], prompt: String) -> Bool {
+        let shell = commands.joined(separator: "; ")
         let escaped = shell.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        let script = "do shell script \"\(escaped)\" with administrator privileges " +
-            "with prompt \"DarkCharge needs to install or update its helper to control the charging LED.\""
+        let script = "do shell script \"\(escaped)\" with administrator privileges with prompt \"\(prompt)\""
         var error: NSDictionary?
         NSAppleScript(source: script)?.executeAndReturnError(&error)
         return error == nil

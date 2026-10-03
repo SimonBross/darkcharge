@@ -43,8 +43,8 @@ Tested on a 16" MacBook Pro (M4 Pro). Reports from other models are welcome.
 - **Launch at Login** (recommended), **Hide Menu Bar Icon** (open the app again to bring
   it back).
 
-The app has to be running to notice the screen sleeping or being dimmed. Lid closed and
-Mac asleep work even when it isn't.
+DarkCharge only controls the LED while the app is running. Quit it and the LED is back
+to normal right away; that's also why **Launch at Login** is recommended.
 
 ## How it works
 
@@ -54,6 +54,10 @@ helper turns the LED off just before the Mac sleeps and whenever the lid is clos
 gives it back to macOS when the screen is in use. It also puts it back whenever macOS
 resets it, for example on plugging in.
 
+The helper only acts while the app is running: the app checks in every few seconds, and
+if it quits, crashes or is deleted, the helper hands the LED back to macOS (at once on
+quit, otherwise within half a minute).
+
 Whether the screen is asleep or fully dimmed can only be seen from your login session,
 so the menu bar app watches that and tells the helper. Reading the brightness uses a
 private macOS API (there's no public one on Apple Silicon); if a future macOS update
@@ -61,7 +65,10 @@ breaks it, "dimmed all the way down" simply stops counting as dark.
 
 ## Uninstall
 
-Quit DarkCharge, delete it from Applications, then remove the helper:
+Choose **Uninstall DarkCharge…** from its menu. It gives the LED back to macOS, removes
+the helper (asking for your password), and moves the app to the Trash.
+
+If the app is already gone, remove the helper from Terminal:
 
 ```sh
 sudo launchctl bootout system/com.darkcharge.daemon
@@ -74,11 +81,10 @@ sudo rm -rf /usr/local/bin/darkcharge /Library/LaunchDaemons/com.darkcharge.daem
 ```sh
 make app            # builds build/DarkCharge.app
 make                # also builds the darkcharge command-line tool
-sudo make install   # install just the helper, without the app
 sudo make uninstall # remove the helper and give the LED back to macOS
 ```
 
-Command-line control (once the helper is installed):
+Command-line control (settings take effect while the app is running):
 
 ```sh
 sudo darkcharge off           # turn the LED off
