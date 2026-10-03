@@ -73,9 +73,9 @@ stops counting as dark. The helper logs to the system log; to watch it:
 
 ## Uninstall
 
-Choose **Uninstall DarkCharge…** from its menu. It gives the LED back to macOS, removes
-the helper, and moves the app to the Trash. Simply deleting the app works too: the
-helper lives inside it and goes with it.
+Quit DarkCharge and move it to the Trash. The helper lives inside the app and goes with
+it, and the LED is back to normal. If DarkCharge still shows up under **System Settings →
+General → Login Items & Extensions**, you can remove it there.
 
 ## Build from source
 

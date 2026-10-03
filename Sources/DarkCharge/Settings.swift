@@ -23,8 +23,4 @@ enum Settings {
         get { defaults.bool(forKey: "iconHidden") }
         set { defaults.set(newValue, forKey: "iconHidden") }
     }
-
-    static func removeAll() {
-        if let domain = Bundle.main.bundleIdentifier { defaults.removePersistentDomain(forName: domain) }
-    }
 }

@@ -29,14 +29,6 @@ enum HelperService {
         if askUser && service.status == .requiresApproval { askForApproval() }
     }
 
-    static func remove() {
-        do {
-            try service.unregister()
-        } catch {
-            log.error("Could not unregister the helper: \(String(describing: error), privacy: .public)")
-        }
-    }
-
     static func openSystemSettings() { SMAppService.openSystemSettingsLoginItems() }
 
     private static func askForApproval() {

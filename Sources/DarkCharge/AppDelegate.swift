@@ -76,7 +76,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(loginItem)
         menu.addItem(NSMenuItem(title: "Hide Menu Bar Icon", action: #selector(hideIcon), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Uninstall DarkCharge…", action: #selector(uninstall), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         for item in menu.items where item.action != #selector(NSApplication.terminate(_:)) {
             item.target = self
@@ -155,30 +154,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func donate() { NSWorkspace.shared.open(donateURL) }
-
-    // Gives the LED back to macOS, removes the helper, login item and settings, then moves
-    // the app to the Trash (recoverable) and quits.
-    @objc private func uninstall() {
-        NSApp.activate()
-        let alert = NSAlert()
-        alert.messageText = "Uninstall DarkCharge?"
-        alert.informativeText = "The charging LED goes back to normal, the background helper is removed, "
-            + "and DarkCharge moves to the Trash."
-        alert.addButton(withTitle: "Uninstall")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        sendHeartbeat(quitting: true)
-        // Give the helper a moment to hand the LED back before it's stopped.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            HelperService.remove()
-            try? SMAppService.mainApp.unregister()
-            Settings.removeAll()
-            NSWorkspace.shared.recycle([Bundle.main.bundleURL]) { _, _ in
-                DispatchQueue.main.async { NSApp.terminate(nil) }
-            }
-        }
-    }
 
     // MARK: - Heartbeat
 
