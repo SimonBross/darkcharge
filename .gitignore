@@ -1,5 +1,5 @@
 .DS_Store
-/build/
-/darkcharge
+/.build/
+/build.noindex/
 /icon/DarkCharge.icns
 /icon/DarkCharge.iconset/

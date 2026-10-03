@@ -1,12 +1,37 @@
-BIN    = /usr/local/bin/darkcharge
-PLIST  = /Library/LaunchDaemons/com.darkcharge.daemon.plist
-LABEL  = system/com.darkcharge.daemon
-APP    = build/DarkCharge.app
+# Builds DarkCharge.app from the Swift package. The bundle goes to build.noindex so
+# Spotlight doesn't list it next to the copy in /Applications.
+#
+#   make app       build build.noindex/DarkCharge.app
+#   make test      run the tests
+#   make install   copy the app into /Applications and start it
+#
+# Signing is ad hoc by default. For a release, pass a Developer ID identity:
+#   make app SIGN="Developer ID Application: …"
 
-all: darkcharge $(APP)
+APP      = build.noindex/DarkCharge.app
+SIGN    ?= -
+BIN_DIR  = $(shell swift build -c release --show-bin-path)
+SOURCES  = Package.swift $(shell find Sources -name '*.swift')
 
-darkcharge: cli/main.swift shared/Hardware.swift
-	swiftc -O -framework IOKit -o $@ $^
+all: app
+
+app: $(APP)
+
+test:
+	swift test
+
+$(APP): $(SOURCES) Bundle/Info.plist Bundle/com.darkcharge.daemon.plist icon/DarkCharge.icns
+	swift build -c release --product DarkCharge
+	swift build -c release --product DarkChargeHelper
+	rm -rf $@
+	mkdir -p $@/Contents/MacOS $@/Contents/Resources $@/Contents/Library/LaunchDaemons
+	cp $(BIN_DIR)/DarkCharge $(BIN_DIR)/DarkChargeHelper $@/Contents/MacOS/
+	cp Bundle/Info.plist $@/Contents/
+	cp Bundle/com.darkcharge.daemon.plist $@/Contents/Library/LaunchDaemons/
+	cp icon/DarkCharge.icns $@/Contents/Resources/
+	# Inside out: the helper first, then the app that contains it.
+	codesign --force --options runtime --timestamp=none -s "$(SIGN)" $@/Contents/MacOS/DarkChargeHelper
+	codesign --force --options runtime --timestamp=none -s "$(SIGN)" $@
 
 # App icon: rendered from icon/make_icon.swift, then scaled to every size macOS wants.
 icon/DarkCharge.icns: icon/make_icon.swift
@@ -20,24 +45,14 @@ icon/DarkCharge.icns: icon/make_icon.swift
 	iconutil -c icns -o $@ icon/DarkCharge.iconset
 	rm -rf icon/DarkCharge.iconset
 
-$(APP): darkcharge app/main.swift shared/Hardware.swift app/Info.plist com.darkcharge.daemon.plist icon/DarkCharge.icns
-	rm -rf $@
-	mkdir -p $@/Contents/MacOS $@/Contents/Resources
-	swiftc -O -framework AppKit -framework IOKit -o $@/Contents/MacOS/DarkCharge app/main.swift shared/Hardware.swift
-	cp app/Info.plist $@/Contents/
-	cp darkcharge com.darkcharge.daemon.plist icon/DarkCharge.icns $@/Contents/Resources/
-	codesign --force --deep -s - $@
-
-app: $(APP)
-
-# The app installs the helper itself; this removes it again.
-uninstall:
-	-launchctl bootout $(LABEL) 2>/dev/null
-	-$(BIN) on
-	rm -f $(BIN) $(PLIST)
-	rm -rf "/Library/Application Support/DarkCharge"
+# Updates the app in place rather than deleting and copying it, so its login item and
+# helper registration keep pointing at it; --delete drops files the new build no longer has.
+install: $(APP)
+	-osascript -e 'tell application "DarkCharge" to quit' 2>/dev/null
+	rsync -a --delete $(APP)/ /Applications/DarkCharge.app/
+	open /Applications/DarkCharge.app
 
 clean:
-	rm -rf darkcharge build icon/DarkCharge.icns
+	rm -rf .build build.noindex icon/DarkCharge.icns
 
-.PHONY: all app uninstall clean
+.PHONY: all app test install clean
