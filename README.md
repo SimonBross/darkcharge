@@ -36,6 +36,20 @@ Tested on a 16" MacBook Pro (M4 Pro). Reports from other models are welcome.
   room is that dark or darker. The current light level is shown next to it.
 - **Launch at Login**, **Hide Menu Bar Icon** (open the app again to bring it back).
 
+### Lid closed, lid open, and sleep
+
+The light sensor sits next to the camera, so the lid matters:
+
+- **Lid closed:** the sensor is covered and reads as dark, so the LED turns off.
+  Charging overnight with the lid shut keeps the LED dark.
+- **Mac asleep with the lid open:** DarkCharge can't watch the room while the Mac
+  sleeps. It checks the light just before sleep and keeps that decision until the Mac
+  wakes. If the room was still lit when the Mac went to sleep and you turn the lights
+  off afterwards, the LED stays on until the next wake.
+- **On wake** (opening the lid, pressing a key), it checks the room again right away.
+
+If you want the LED off at night no matter what, set the slider to **Always off**.
+
 ## How it works
 
 The LED is controlled by the Mac's System Management Controller (SMC), key `ACLC`.
@@ -43,8 +57,8 @@ Writing to it needs root, so the app installs a small helper as a LaunchDaemon. 
 helper sets the LED, and puts it back whenever macOS resets it: on every power change,
 after wake, and every 30 seconds as a fallback. It reads the light sensor once a second.
 
-While the Mac is asleep the helper can't watch the room, so it decides just before
-sleep. Closing the lid covers the sensor, which counts as dark.
+While the Mac is asleep the helper can't watch the room; see
+[Lid closed, lid open, and sleep](#lid-closed-lid-open-and-sleep).
 
 The light sensor is read through a private macOS API (there's no public one on Apple
 Silicon). If a future macOS update breaks that, the LED simply stays on.
