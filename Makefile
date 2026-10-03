@@ -1,5 +1,5 @@
 # Builds DarkCharge.app from the Swift package. The bundle goes to build.noindex so
-# Spotlight doesn't list it next to the copy in /Applications.
+# Spotlight skips it; `make install` removes it once it's copied to /Applications.
 #
 #   make app       build build.noindex/DarkCharge.app
 #   make test      run the tests
@@ -50,6 +50,8 @@ icon/DarkCharge.icns: icon/make_icon.swift
 install: $(APP)
 	-osascript -e 'tell application "DarkCharge" to quit' 2>/dev/null
 	rsync -a --delete $(APP)/ /Applications/DarkCharge.app/
+	# Leave only one DarkCharge.app, or the Apps overview lists the build copy too.
+	rm -rf $(APP)
 	open /Applications/DarkCharge.app
 
 clean:
